@@ -2,7 +2,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const NodeCache = require('node-cache');
 
-const cache = new NodeCache({ stdTTL: 600 }); // 缓存10分钟
+const cache = new NodeCache({ stdTTL: 3600 }); // 缓存1小时
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -22,11 +22,13 @@ module.exports = async (req, res) => {
         }
 
         console.log('Fetching data from Hacker News...');
-        const response = await axios.get('https://news.ycombinator.com/show');
+        const response = await axios.get('https://news.ycombinator.com/show', { timeout: 5000 });
         const $ = cheerio.load(response.data);
         const items = [];
 
         $('tr.athing').each((index, element) => {
+            if (index >= 30) return false; // 只获取前30个项目
+
             const $element = $(element);
             const $subtext = $element.next('tr');
 
@@ -42,27 +44,6 @@ module.exports = async (req, res) => {
                 items.push({ title, url, points, author, comments, commentsLink });
             }
         });
-
-        // Fetch summaries and images
-        for (let item of items) {
-            try {
-                const cachedData = cache.get(item.url);
-                if (cachedData) {
-                    Object.assign(item, cachedData);
-                } else {
-                    const pageResponse = await axios.get(item.url, { timeout: 5000 }); // 5 seconds timeout
-                    const page$ = cheerio.load(pageResponse.data);
-                    const summary = page$('meta[name="description"]').attr('content') || '';
-                    const image = page$('meta[property="og:image"]').attr('content') || '';
-                    Object.assign(item, { summary, image });
-                    cache.set(item.url, { summary, image });
-                }
-            } catch (error) {
-                console.error(`Error fetching additional data for ${item.url}:`, error.message);
-                item.summary = '';
-                item.image = '';
-            }
-        }
 
         console.log(`Fetched ${items.length} items`);
         cache.set('showHNItems', items);
